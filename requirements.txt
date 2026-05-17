@@ -1,0 +1,12 @@
+Django==4.2.30
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+django-cors-headers==4.9.0
+django-environ==0.13.0
+django-filter==24.3
+psycopg2-binary==2.9.12
+gunicorn==23.0.0
+Pillow==12.2.0
+razorpay==1.4.1
+firebase-admin==6.5.0
+channels==4.3.2
