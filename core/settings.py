@@ -9,12 +9,15 @@ env = environ.Env(DEBUG=(bool, False))
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-in-production')
-DEBUG      = True
-CSRF_TRUSTED_ORIGINS = [
+
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['*'])
+DEBUG = env.bool('DEBUG', default=False)
+
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
     'http://127.0.0.1:8000',
     'http://localhost:8000',
-]
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['*'])
+])
+
 
 INSTALLED_APPS = [
     'django.contrib.admin',
