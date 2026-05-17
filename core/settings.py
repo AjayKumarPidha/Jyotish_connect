@@ -13,10 +13,15 @@ SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-in-production'
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['*'])
 DEBUG = env.bool('DEBUG', default=False)
 
+# Railway ke liye CSRF fix
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
     'http://127.0.0.1:8000',
     'http://localhost:8000',
 ])
+
+# Railway proxy headers
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 INSTALLED_APPS = [
