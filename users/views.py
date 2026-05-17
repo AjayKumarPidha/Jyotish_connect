@@ -28,11 +28,19 @@ def get_firebase_app():
     try:
         return firebase_admin.get_app()
     except ValueError:
+        # Railway pe JSON env variable se
+        creds_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
+        if creds_json:
+            import json
+            cred_dict = json.loads(creds_json)
+            cred = credentials.Certificate(cred_dict)
+            return firebase_admin.initialize_app(cred)
+        # Local pe file se
         cred_path = settings.FIREBASE_CREDENTIALS_PATH
-        if not os.path.exists(cred_path):
-            return None   # Firebase not configured yet
-        cred = credentials.Certificate(cred_path)
-        return firebase_admin.initialize_app(cred)
+        if os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            return firebase_admin.initialize_app(cred)
+        return None
 
 
 

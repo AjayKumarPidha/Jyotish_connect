@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import environ
-
+import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(DEBUG=(bool, False))
@@ -151,3 +151,9 @@ LOGGING = {
 # Tell Django the real host when behind Nginx
 USE_X_FORWARDED_HOST = True
 FORCE_SCRIPT_NAME = ''
+
+
+
+# Firebase credentials — Railway env variable se ya file se
+FIREBASE_CREDENTIALS_PATH = env('FIREBASE_CREDENTIALS_PATH', default='firebase-credentials.json')
+FIREBASE_CREDENTIALS_JSON = env('FIREBASE_CREDENTIALS_JSON', default=None)
