@@ -2,20 +2,35 @@
 set -e
 
 echo "Waiting for PostgreSQL..."
-while ! nc -z db 5432; do
-  sleep 0.5
-done
+
+# Railway pe DATABASE_URL se host extract karo
+# Local Docker pe "db" hostname use karo
+if [ -n "$DATABASE_URL" ]; then
+    DB_HOST=$(python3 -c "
+import urllib.parse, os
+url = urllib.parse.urlparse(os.environ['DATABASE_URL'])
+print(url.hostname)
+")
+    DB_PORT=$(python3 -c "
+import urllib.parse, os
+url = urllib.parse.urlparse(os.environ['DATABASE_URL'])
+print(url.port or 5432)
+")
+    echo "Connecting to: $DB_HOST:$DB_PORT"
+    while ! nc -z $DB_HOST $DB_PORT; do
+        sleep 0.5
+    done
+else
+    echo "Using local Docker db host..."
+    while ! nc -z db 5432; do
+        sleep 0.5
+    done
+fi
+
 echo "PostgreSQL is ready!"
 
-echo "Creating migrations..."
-python manage.py makemigrations users
-python manage.py makemigrations astrologers
-python manage.py makemigrations sessions
-python manage.py makemigrations wallet
-python manage.py makemigrations notifications
-
 echo "Running migrations..."
-python manage.py migrate
+python manage.py migrate --noinput
 
 echo "Collecting static files..."
 python manage.py collectstatic --noinput
@@ -27,4 +42,3 @@ exec gunicorn core.wsgi:application \
     --timeout 120 \
     --access-logfile - \
     --error-logfile -
-    --reload
