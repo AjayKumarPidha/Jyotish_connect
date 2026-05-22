@@ -51,7 +51,7 @@ def approved_astrologers():
 class AstrologerListAPIView(APIView):
     permission_classes = [AllowAny]
 
-    def get(self, request):
+    def get(self, request): 
         qs = approved_astrologers()
 
         # ── Search by name ──────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-import uuid
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -36,10 +36,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     ]
 
     phone         = models.CharField(max_length=15, unique=True)
-    full_name     = models.CharField(max_length=150, blank=True, default='')  # ← NEW
+    full_name     = models.CharField(max_length=150, blank=True, default='')
     role          = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_CLIENT)
     gender        = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
+    place_of_birth = models.CharField(max_length=255, null=True, blank=True)   # e.g. "Panna, Madhya Pradesh, India"
+    time_of_birth  = models.TimeField(null=True, blank=True)                   # null = user doesn't know
+    birth_time_unknown = models.BooleanField(default=False)                    # "Don't know my exact time"
     profile_photo = models.ImageField(upload_to='profile_photos/', null=True, blank=True)
     firebase_uid  = models.CharField(max_length=128, null=True, blank=True, unique=True)
     has_used_free_session = models.BooleanField(default=False)
@@ -61,3 +64,26 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.phone} ({self.role})"
+
+
+class OTPRecord(models.Model):
+    """
+    Stores OTP codes for phone verification.
+    Currently uses STATIC OTP — swap `otp_service.py` to enable dynamic/Firebase OTP.
+    """
+    phone      = models.CharField(max_length=15, db_index=True)
+    otp_code   = models.CharField(max_length=10)
+    is_used    = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'otp_records'
+        ordering = ['-created_at']
+
+    def is_valid(self):
+        """Check if OTP is still valid (not used, not expired)."""
+        return (not self.is_used) and (timezone.now() < self.expires_at)
+
+    def __str__(self):
+        return f"{self.phone} — {'used' if self.is_used else 'active'}"

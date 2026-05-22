@@ -1,104 +1,53 @@
-import jwt
-import time
-from datetime import datetime, timedelta
+"""
+views.py — Jyotish Connect Authentication
+==========================================
 
-from django.conf import settings
-from django.utils import timezone
-import os
+Flow:
+  Screen 1 → POST /auth/check-phone/  (optional: pre-check)
+           → POST /auth/send-otp/     (trigger OTP)
+           → POST /auth/verify-otp/   (submit code)
+                  ↓
+          existing user          new user
+               ↓                    ↓
+         JWT tokens          temp_token (10 min)
+         (login done)              ↓
+                           Screen 2 → POST /auth/complete-profile/
+                                           ↓
+                                      JWT tokens (signup done)
+
+Profile:
+  GET  /auth/profile/    view own profile
+  PUT  /auth/profile/    update profile
+  POST /auth/logout/     blacklist refresh token
+  POST /auth/token/refresh/  get new access token
+"""
+
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
-import firebase_admin
-from firebase_admin import auth as firebase_auth, credentials
-
 from .models import User
+from .otp_service import otp_backend
+from .tokens import get_tokens, generate_temp_token, decode_temp_token
 from .serializers import (
-    UserProfileSerializer,
     PhoneCheckSerializer,
-    FirebaseVerifySerializer,
+    SendOTPSerializer,
+    VerifyOTPSerializer,
     CompleteProfileSerializer,
+    UserProfileSerializer,
 )
 
 
-# ── lazy Firebase init — won't crash if file missing ─────────────────────────
-def get_firebase_app():
-    try:
-        return firebase_admin.get_app()
-    except ValueError:
-        # Railway pe JSON env variable se
-        creds_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
-        if creds_json:
-            import json
-            cred_dict = json.loads(creds_json)
-            cred = credentials.Certificate(cred_dict)
-            return firebase_admin.initialize_app(cred)
-        # Local pe file se
-        cred_path = settings.FIREBASE_CREDENTIALS_PATH
-        if os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
-            return firebase_admin.initialize_app(cred)
-        return None
-
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-def get_tokens(user):
-    """Generate JWT access + refresh tokens."""
-    refresh = RefreshToken.for_user(user)
-    return {
-        'refresh': str(refresh),
-        'access':  str(refresh.access_token),
-    }
-
-
-def generate_temp_token(phone, firebase_uid):
-    """
-    Short-lived token (10 min) issued after OTP verification.
-    Used to authorize Screen 2 (profile completion).
-    Signed with Django SECRET_KEY so it cannot be forged.
-    """
-    payload = {
-        'phone':       phone,
-        'firebase_uid': firebase_uid,
-        'purpose':     'signup_step2',
-        'exp':         datetime.utcnow() + timedelta(minutes=10),
-        'iat':         datetime.utcnow(),
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
-
-
-def decode_temp_token(token):
-    """
-    Decode and validate the temp token.
-    Returns payload dict or raises ValueError.
-    """
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
-        if payload.get('purpose') != 'signup_step2':
-            raise ValueError('Invalid token purpose.')
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise ValueError('Token expired. Please verify OTP again.')
-    except jwt.InvalidTokenError:
-        raise ValueError('Invalid token.')
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SCREEN 1 — STEP 1
+# STEP 0 (optional) — Check if phone is registered
 # POST /api/auth/check-phone/
 #
 # Request:  { "phone": "9999999999" }
-# Response: { "exists": true/false, "message": "..." }
+# Response: { "exists": true, "message": "..." }
 #
-# Frontend uses this to decide:
-#   exists=true  → show "Login" flow (still verify OTP)
-#   exists=false → show "Signup" flow
-# Firebase OTP is triggered CLIENT-SIDE after this call.
+# Frontend uses this to show "Login" vs "Signup" label before OTP.
 # ─────────────────────────────────────────────────────────────────────────────
 class CheckPhoneAPIView(APIView):
     permission_classes = [AllowAny]
@@ -113,72 +62,81 @@ class CheckPhoneAPIView(APIView):
 
         return Response({
             'exists':  exists,
-            'message': 'User exists. Please verify OTP to login.' if exists
-                       else 'New user. Please verify OTP to continue signup.',
+            'message': 'User found. Proceed to OTP.' if exists
+                       else 'New user. Proceed to OTP.',
         })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCREEN 1 — STEP 2
+# STEP 1 — Send OTP
+# POST /api/auth/send-otp/
+#
+# Request:  { "phone": "9999999999" }
+# Response: { "success": true, "message": "OTP sent to +919999999999." }
+#
+# Currently uses StaticOTPBackend (code = 1234).
+# Swap backend in otp_service.py for Firebase/Twilio.
+# ─────────────────────────────────────────────────────────────────────────────
+class SendOTPAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = SendOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        phone  = serializer.validated_data['phone']
+        result = otp_backend.send_otp(phone)
+
+        if not result.get('success'):
+            return Response(
+                {'error': result.get('message', 'Failed to send OTP.')},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 2 — Verify OTP
 # POST /api/auth/verify-otp/
 #
-# Request:  { "phone": "9999999999", "firebase_token": "<idToken from Firebase>" }
+# Request:  { "phone": "9999999999", "otp_code": "1234" }
 #
-# For EXISTING users  → returns full JWT tokens (login complete)
-# For NEW users       → returns temp_token for Screen 2
+# Existing user  → { "step": "login_complete", "tokens": {...}, "user": {...} }
+# New user       → { "step": "signup_incomplete", "temp_token": "..." }
 # ─────────────────────────────────────────────────────────────────────────────
 class VerifyOTPAPIView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = FirebaseVerifySerializer(data=request.data)
+        serializer = VerifyOTPSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        phone          = serializer.validated_data['phone']
-        firebase_token = serializer.validated_data['firebase_token']
-        
-         # Check Firebase is configured
-        app = get_firebase_app()
-        if app is None:
-            return Response(
-                {'error': 'Firebase not configured on server.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+        phone    = serializer.validated_data['phone']
+        otp_code = serializer.validated_data['otp_code']
 
-        # ── Verify Firebase ID token ─────────────────────────────────────────
-        try:
-            decoded = firebase_auth.verify_id_token(firebase_token)
-        except firebase_auth.ExpiredIdTokenError:
+        # ── Verify OTP via backend ───────────────────────────────────────────
+        result = otp_backend.verify_otp(phone, otp_code)
+        if not result.get('valid'):
             return Response(
-                {'error': 'OTP expired. Please request a new one.'},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-        except Exception:
-            return Response(
-                {'error': 'Invalid OTP. Verification failed.'},
+                {'error': result.get('message', 'OTP verification failed.')},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        firebase_uid = decoded['uid']
-
-        # ── Existing user → login complete ───────────────────────────────────
+        # ── Existing user → login ────────────────────────────────────────────
         try:
             user = User.objects.get(phone=phone)
-            # Keep firebase_uid in sync
-            if user.firebase_uid != firebase_uid:
-                user.firebase_uid = firebase_uid
-                user.save(update_fields=['firebase_uid'])
-
             return Response({
-                'step':    'login_complete',
-                'tokens':  get_tokens(user),
-                'user':    UserProfileSerializer(user).data,
+                'step':   'login_complete',
+                'tokens': get_tokens(user),
+                'user':   UserProfileSerializer(user).data,
             })
 
-        # ── New user → issue temp token for Screen 2 ─────────────────────────
+        # ── New user → temp token for Screen 2 ──────────────────────────────
         except User.DoesNotExist:
-            temp_token = generate_temp_token(phone, firebase_uid)
+            temp_token = generate_temp_token(phone)
             return Response({
                 'step':       'signup_incomplete',
                 'temp_token': temp_token,
@@ -187,73 +145,75 @@ class VerifyOTPAPIView(APIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCREEN 2
+# STEP 3 — Complete Profile (new users only)
 # POST /api/auth/complete-profile/
 #
-# Header:  Authorization: Bearer <temp_token>   (NOT a JWT, use X-Temp-Token)
-# Request: {
-#   "temp_token":   "<from step 1>",
-#   "full_name":    "Rahul Sharma",
-#   "gender":       "male",
-#   "date_of_birth":"1995-08-15",
-#   "role":         "client"         (optional, default=client)
+# Request:
+# {
+#   "temp_token":         "<from verify-otp>",
+#   "full_name":          "Ajay Kumar",
+#   "gender":             "male",
+#   "date_of_birth":      "2000-03-20",
+#   "place_of_birth":     "Panna, Madhya Pradesh, India",
+#   "time_of_birth":      "12:30",       ← omit if birth_time_unknown=true
+#   "birth_time_unknown": false,
+#   "role":               "client"
 # }
-# Response: full JWT tokens + user profile (signup complete)
+#
+# Response: { "step": "signup_complete", "tokens": {...}, "user": {...} }
 # ─────────────────────────────────────────────────────────────────────────────
 class CompleteProfileAPIView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # ── Validate temp token ──────────────────────────────────────────────
-        temp_token = request.data.get('temp_token', '').strip()
-        if not temp_token:
-            return Response(
-                {'error': 'temp_token is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        serializer = CompleteProfileSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        data = serializer.validated_data
+
+        # ── Validate temp token ──────────────────────────────────────────────
         try:
-            token_data = decode_temp_token(temp_token)
+            token_data = decode_temp_token(data['temp_token'])
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
 
-        phone        = token_data['phone']
-        firebase_uid = token_data['firebase_uid']
+        phone = token_data['phone']
 
-        # Guard: don't allow re-registration
+        # Guard: prevent double registration
         if User.objects.filter(phone=phone).exists():
             return Response(
                 {'error': 'User already registered. Please login.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Validate profile fields ──────────────────────────────────────────
-        serializer = CompleteProfileSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
         # ── Create user ──────────────────────────────────────────────────────
         user = User.objects.create_user(
-            phone        = phone,
-            password     = None,                # No password — Firebase only
-            firebase_uid = firebase_uid,
-            role         = serializer.validated_data.get('role', User.ROLE_CLIENT),
-            gender       = serializer.validated_data.get('gender'),
-            date_of_birth= serializer.validated_data.get('date_of_birth'),
-            full_name    = serializer.validated_data.get('full_name', ''),
+            phone              = phone,
+            password           = None,
+            role               = data.get('role', User.ROLE_CLIENT),
+            full_name          = data.get('full_name', ''),
+            gender             = data.get('gender'),
+            date_of_birth      = data.get('date_of_birth'),
+            place_of_birth     = data.get('place_of_birth', ''),
+            time_of_birth      = data.get('time_of_birth'),
+            birth_time_unknown = data.get('birth_time_unknown', False),
         )
 
         return Response({
-            'step':    'signup_complete',
-            'tokens':  get_tokens(user),
-            'user':    UserProfileSerializer(user).data,
+            'step':   'signup_complete',
+            'tokens': get_tokens(user),
+            'user':   UserProfileSerializer(user).data,
         }, status=status.HTTP_201_CREATED)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROFILE
-# GET  /api/auth/profile/  → View own profile
-# PUT  /api/auth/profile/  → Update own profile
+# PROFILE — View & Edit
+# GET  /api/auth/profile/  → returns own profile
+# PUT  /api/auth/profile/  → updates editable fields
+#
+# Editable: full_name, gender, date_of_birth, place_of_birth,
+#           time_of_birth, birth_time_unknown, profile_photo
 # ─────────────────────────────────────────────────────────────────────────────
 class UserProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -275,7 +235,6 @@ class UserProfileAPIView(APIView):
 # LOGOUT
 # POST /api/auth/logout/
 # Body: { "refresh": "<refresh_token>" }
-# Blacklists the refresh token so it can't be reused.
 # ─────────────────────────────────────────────────────────────────────────────
 class LogoutAPIView(APIView):
     permission_classes = [IsAuthenticated]
