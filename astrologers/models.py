@@ -6,8 +6,6 @@ from django.conf import settings
 class Category(models.Model):
     """Session type category: Chat, Call, Video"""
     name        = models.CharField(max_length=50, unique=True)
-    description = models.TextField(blank=True)
-    icon        = models.ImageField(upload_to='categories/', null=True, blank=True)
     is_active   = models.BooleanField(default=True)
 
     class Meta:
