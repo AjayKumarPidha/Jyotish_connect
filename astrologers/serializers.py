@@ -5,7 +5,7 @@ from .models import AstrologerProfile, Review, Category, Specialty, Language
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model  = Category
-        fields = ['id', 'name', 'description', 'icon']
+        fields = ['id', 'name']
 
 
 class SpecialtySerializer(serializers.ModelSerializer):
@@ -37,8 +37,6 @@ class ReviewSerializer(serializers.ModelSerializer):
 class AstrologerListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for listing astrologers."""
     categories  = CategorySerializer(many=True, read_only=True)
-    specialties = SpecialtySerializer(many=True, read_only=True)
-    languages   = LanguageSerializer(many=True, read_only=True)
     profile_photo = serializers.SerializerMethodField()
 
     class Meta:
@@ -63,8 +61,7 @@ class AstrologerListSerializer(serializers.ModelSerializer):
 
 class AstrologerDetailSerializer(serializers.ModelSerializer):
     categories   = CategorySerializer(many=True, read_only=True)
-    specialties  = SpecialtySerializer(many=True, read_only=True)
-    languages    = LanguageSerializer(many=True, read_only=True)
+
     reviews      = ReviewSerializer(many=True, read_only=True)
     profile_photo = serializers.SerializerMethodField()   # ← manual URL build
 

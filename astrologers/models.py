@@ -62,8 +62,9 @@ class AstrologerProfile(models.Model):
     bio                = models.TextField(blank=True)
     experience_years   = models.PositiveIntegerField(default=0)
     categories         = models.ManyToManyField(Category, blank=True)
-    specialties        = models.ManyToManyField(Specialty, blank=True)
-    languages          = models.ManyToManyField(Language, blank=True)
+    specialties        = models.TextField(blank=True, help_text="Comma-separated list of specialties")
+    languages          = models.TextField(blank=True, help_text="Comma-separated list of languages")
+    
 
     # Per-minute rates
     chat_rate_per_min  = models.DecimalField(max_digits=8, decimal_places=2, default=10)

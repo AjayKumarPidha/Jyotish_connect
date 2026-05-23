@@ -5,9 +5,8 @@ from .views import (
     AstrologerStatusAPIView,
     ReviewAPIView,
     MyAstrologerProfileAPIView,
-    CategoryListAPIView,
-    SpecialtyListAPIView,
-    LanguageListAPIView,
+    CategoryListAPIView
+
 )
 
 urlpatterns = [
@@ -19,7 +18,6 @@ urlpatterns = [
     path('<uuid:pk>/review/',  ReviewAPIView.as_view(),              name='astrologer-review'),
 
     # ── Filter options (dropdowns for frontend) ──────────────────────────────
-    path('categories/',        CategoryListAPIView.as_view(),        name='category-list'),
-    path('specialties/',       SpecialtyListAPIView.as_view(),       name='specialty-list'),
-    path('languages/',         LanguageListAPIView.as_view(),        name='language-list'),
+    path('categories/',        CategoryListAPIView.as_view(),        name='category-list')
+
 ]

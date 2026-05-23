@@ -9,19 +9,6 @@ class CategoryAdmin(admin.ModelAdmin):
     search_fields = ['name']
 
 
-@admin.register(Specialty)
-class SpecialtyAdmin(admin.ModelAdmin):
-    list_display  = ['name', 'is_active']
-    list_filter   = ['is_active']
-    search_fields = ['name']
-
-
-@admin.register(Language)
-class LanguageAdmin(admin.ModelAdmin):
-    list_display  = ['name']
-    search_fields = ['name']
-
-
 @admin.register(AstrologerProfile)
 class AstrologerProfileAdmin(admin.ModelAdmin):
     list_display   = [
@@ -32,7 +19,7 @@ class AstrologerProfileAdmin(admin.ModelAdmin):
     list_filter    = ['status', 'is_approved']
     search_fields  = ['display_name', 'user__phone']
     readonly_fields = ['id', 'average_rating', 'total_sessions', 'total_earnings', 'created_at']
-    filter_horizontal = ['categories', 'specialties', 'languages']
+    filter_horizontal = ['categories']
 
     fieldsets = (
         ('Basic',       {'fields': ('id', 'user', 'display_name', 'bio', 'profile_photo')}),

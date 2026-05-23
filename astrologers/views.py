@@ -10,10 +10,7 @@ from .models import AstrologerProfile, Category, Specialty, Language, Review
 from .serializers import (
     AstrologerListSerializer,
     AstrologerDetailSerializer,
-    AstrologerStatusSerializer,
     CategorySerializer,
-    SpecialtySerializer,
-    LanguageSerializer,
     ReviewSerializer,
 )
 from users.permissions import IsAstrologer, IsClient
@@ -28,7 +25,7 @@ def approved_astrologers():
         AstrologerProfile.objects
         .filter(is_approved=True)
         .select_related('user')
-        .prefetch_related('categories', 'specialties', 'languages')
+        .prefetch_related('categories')
         .distinct()
     )
 
@@ -64,36 +61,7 @@ class AstrologerListAPIView(APIView):
         if category:
             qs = qs.filter(categories__name__iexact=category)
 
-        specialty = request.query_params.get('specialty', '').strip()
-        if specialty:
-            qs = qs.filter(specialties__name__iexact=specialty)
-
-        language = request.query_params.get('language', '').strip()
-        if language:
-            qs = qs.filter(languages__name__iexact=language)
-
-        status_param = request.query_params.get('status', '').strip()
-        if status_param:
-            qs = qs.filter(status__iexact=status_param)
-
-        min_exp = request.query_params.get('min_experience', '').strip()
-        if min_exp.isdigit():
-            qs = qs.filter(experience_years__gte=int(min_exp))
-
-        min_rating = request.query_params.get('min_rating', '').strip()
-        if min_rating:
-            try:
-                qs = qs.filter(average_rating__gte=float(min_rating))
-            except ValueError:
-                pass
-
-        max_chat_rate = request.query_params.get('max_chat_rate', '').strip()
-        if max_chat_rate:
-            try:
-                qs = qs.filter(chat_rate_per_min__lte=float(max_chat_rate))
-            except ValueError:
-                pass
-
+   
         # ── Ordering ────────────────────────────────────────────────────────
         ALLOWED_ORDERINGS = {
             'average_rating', '-average_rating',
@@ -127,7 +95,7 @@ class AstrologerDetailAPIView(APIView):
             AstrologerProfile.objects
             .filter(is_approved=True)
             .select_related('user')
-            .prefetch_related('categories', 'specialties', 'languages', 'reviews__client'),
+            .prefetch_related('categories'),
             pk=pk
         )
         serializer = AstrologerDetailSerializer(
@@ -242,31 +210,6 @@ class CategoryListAPIView(APIView):
         )
         return Response(serializer.data)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 7. SPECIALTY LIST  ← NEW
-# GET /api/astrologers/specialties/
-# ─────────────────────────────────────────────────────────────────────────────
-class SpecialtyListAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        specialties = Specialty.objects.filter(is_active=True)
-        serializer = SpecialtySerializer(specialties, many=True)
-        return Response(serializer.data)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. LANGUAGE LIST  ← NEW
-# GET /api/astrologers/languages/
-# ─────────────────────────────────────────────────────────────────────────────
-class LanguageListAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        languages = Language.objects.all()
-        serializer = LanguageSerializer(languages, many=True)
-        return Response(serializer.data)
 
 
 class MyAstrologerProfileAPIView(APIView):
