@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404
 from .models import Session, BillingTick
 from .serializers import SessionSerializer, StartSessionSerializer
 from astrologers.models import AstrologerProfile
-from wallet.utils import debit_wallet, split_session_earnings, get_or_create_wallet
+from wallet.utils import debit_wallet,  get_or_create_wallet
 from users.permissions import IsClient, IsAstrologer, IsClientOrAstrologer
 
 FREE_SESSION_MINUTES = 5

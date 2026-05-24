@@ -16,7 +16,6 @@ from .serializers import (
 from users.permissions import IsAstrologer, IsClient
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPER: base approved queryset
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,22 +32,11 @@ def approved_astrologers():
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. LIST + FILTER + SEARCH
 # GET /api/astrologers/
-#
-# Query params:
-#   ?search=ajay              → search by astrologer display_name
-#   ?category=Chat            → filter by category name
-#   ?specialty=Tarot          → filter by specialty name
-#   ?language=Hindi           → filter by language name
-#   ?status=online            → filter by online/offline/busy
-#   ?min_experience=5         → experience >= 5 years
-#   ?min_rating=4             → average_rating >= 4
-#   ?max_chat_rate=30         → chat_rate_per_min <= 30
-#   ?ordering=chat_rate_per_min | average_rating | experience_years
 # ─────────────────────────────────────────────────────────────────────────────
 class AstrologerListAPIView(APIView):
     permission_classes = [AllowAny]
 
-    def get(self, request): 
+    def get(self, request):
         qs = approved_astrologers()
 
         # ── Search by name ──────────────────────────────────────────────────
@@ -61,7 +49,6 @@ class AstrologerListAPIView(APIView):
         if category:
             qs = qs.filter(categories__name__iexact=category)
 
-   
         # ── Ordering ────────────────────────────────────────────────────────
         ALLOWED_ORDERINGS = {
             'average_rating', '-average_rating',
@@ -78,6 +65,8 @@ class AstrologerListAPIView(APIView):
             qs, many=True, context={'request': request}
         )
         return Response({
+            'success': True,
+            'message': 'Astrologers fetched successfully.',
             'count': qs.count(),
             'results': serializer.data
         })
@@ -101,41 +90,52 @@ class AstrologerDetailAPIView(APIView):
         serializer = AstrologerDetailSerializer(
             astrologer, context={'request': request}
         )
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Astrologer details fetched successfully.',
+            'data': serializer.data
+        })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. STATUS UPDATE (astrologer sets online/offline/busy)
+# 3. STATUS UPDATE
 # PATCH /api/astrologers/status/
-# Body: { "status": "online" }
 # ─────────────────────────────────────────────────────────────────────────────
 class AstrologerStatusAPIView(APIView):
     permission_classes = [IsAuthenticated, IsAstrologer]
 
     def patch(self, request):
-        profile = get_object_or_404(
-            AstrologerProfile, user=request.user
-        )
+        profile = get_object_or_404(AstrologerProfile, user=request.user)
         new_status = request.data.get('status', '').strip().lower()
-        allowed = [AstrologerProfile.STATUS_ONLINE,
-                   AstrologerProfile.STATUS_OFFLINE,
-                   AstrologerProfile.STATUS_BUSY]
+        allowed = [
+            AstrologerProfile.STATUS_ONLINE,
+            AstrologerProfile.STATUS_OFFLINE,
+            AstrologerProfile.STATUS_BUSY,
+        ]
 
         if new_status not in allowed:
             return Response(
-                {'error': f'Status must be one of: {allowed}'},
+                {
+                    'success': False,
+                    'message': f'Invalid status. Must be one of: {allowed}',
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         profile.status = new_status
         profile.save(update_fields=['status'])
-        return Response({'status': profile.status})
+        return Response({
+            'success': True,
+            'message': f'Status updated to "{profile.status}" successfully.',
+            'data': {'status': profile.status}
+        })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. MY PROFILE (astrologer views/updates their own profile)
+# 4. MY PROFILE
 # GET  /api/astrologers/my-profile/
 # PATCH /api/astrologers/my-profile/
+# PUT   /api/astrologers/my-profile/
 # ─────────────────────────────────────────────────────────────────────────────
 class MyAstrologerProfileAPIView(APIView):
     permission_classes = [IsAuthenticated, IsAstrologer]
@@ -145,7 +145,11 @@ class MyAstrologerProfileAPIView(APIView):
         serializer = AstrologerDetailSerializer(
             profile, context={'request': request}
         )
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Profile fetched successfully.',
+            'data': serializer.data
+        })
 
     def patch(self, request):
         profile = get_object_or_404(AstrologerProfile, user=request.user)
@@ -155,14 +159,47 @@ class MyAstrologerProfileAPIView(APIView):
         )
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'success': True,
+                'message': 'Profile updated successfully.',
+                'data': serializer.data
+            })
+        return Response(
+            {
+                'success': False,
+                'message': 'Profile update failed. Please fix the errors.',
+                'errors': serializer.errors
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def put(self, request):
+        profile = get_object_or_404(AstrologerProfile, user=request.user)
+        serializer = AstrologerDetailSerializer(
+            profile, data=request.data,
+            partial=True, context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Profile updated successfully.',
+                'data': serializer.data
+            })
+        return Response(
+            {
+                'success': False,
+                'message': 'Profile update failed. Please fix the errors.',
+                'errors': serializer.errors
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. REVIEWS
-# GET  /api/astrologers/<uuid>/review/   → list reviews of an astrologer
-# POST /api/astrologers/<uuid>/review/   → client submits a review
+# GET  /api/astrologers/<uuid>/review/
+# POST /api/astrologers/<uuid>/review/
 # ─────────────────────────────────────────────────────────────────────────────
 class ReviewAPIView(APIView):
 
@@ -175,7 +212,12 @@ class ReviewAPIView(APIView):
         astrologer = get_object_or_404(AstrologerProfile, pk=pk, is_approved=True)
         reviews = Review.objects.filter(astrologer=astrologer).select_related('client')
         serializer = ReviewSerializer(reviews, many=True)
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Reviews fetched successfully.',
+            'count': reviews.count(),
+            'data': serializer.data
+        })
 
     def post(self, request, pk):
         astrologer = get_object_or_404(AstrologerProfile, pk=pk, is_approved=True)
@@ -183,7 +225,10 @@ class ReviewAPIView(APIView):
         # One review per client per astrologer
         if Review.objects.filter(astrologer=astrologer, client=request.user).exists():
             return Response(
-                {'error': 'You have already reviewed this astrologer.'},
+                {
+                    'success': False,
+                    'message': 'You have already reviewed this astrologer.',
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -191,14 +236,27 @@ class ReviewAPIView(APIView):
         if serializer.is_valid():
             serializer.save(astrologer=astrologer, client=request.user)
             astrologer.update_rating()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    'success': True,
+                    'message': 'Review submitted successfully.',
+                    'data': serializer.data
+                },
+                status=status.HTTP_201_CREATED
+            )
+        return Response(
+            {
+                'success': False,
+                'message': 'Review submission failed. Please fix the errors.',
+                'errors': serializer.errors
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. CATEGORY LIST  ← NEW
+# 6. CATEGORY LIST
 # GET /api/astrologers/categories/
-# Returns all active categories (Chat, Call, Video etc.)
 # ─────────────────────────────────────────────────────────────────────────────
 class CategoryListAPIView(APIView):
     permission_classes = [AllowAny]
@@ -208,26 +266,9 @@ class CategoryListAPIView(APIView):
         serializer = CategorySerializer(
             categories, many=True, context={'request': request}
         )
-        return Response(serializer.data)
-
-
-
-class MyAstrologerProfileAPIView(APIView):
-    """
-    GET  /api/astrologers/my-profile/
-    PUT  /api/astrologers/my-profile/
-    Astrologer views/updates their own profile.
-    """
-    permission_classes = [IsAuthenticated, IsAstrologer]
-
-    def get(self, request):
-        profile = get_object_or_404(AstrologerProfile, user=request.user)
-        return Response(AstrologerDetailSerializer(profile).data)
-
-    def put(self, request):
-        profile = get_object_or_404(AstrologerProfile, user=request.user)
-        serializer = AstrologerDetailSerializer(profile, data=request.data, partial=True)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        serializer.save()
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Categories fetched successfully.',
+            'count': categories.count(),
+            'data': serializer.data
+        })

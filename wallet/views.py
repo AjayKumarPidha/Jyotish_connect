@@ -1,3 +1,19 @@
+"""
+Wallet Views
+============
+Handles Razorpay payment lifecycle + wallet management.
+
+PAYMENT LIFECYCLE (end to end):
+1. POST /api/wallet/recharge/         → Create Razorpay order
+2. Flutter opens Razorpay checkout
+3. User pays on Razorpay
+4. POST /api/wallet/webhook/          → Razorpay fires webhook → wallet credited ✓
+5. POST /api/wallet/verify-payment/   → Flutter calls as fallback (if webhook missed)
+6. User taps Chat/Call
+7. GET  /api/sessions/access-check/   → Sessions app reads wallet.balance
+8. POST /api/sessions/start/          → Session begins
+9. POST /api/sessions/{id}/tick/      → Per-minute debit from wallet
+"""
 import razorpay
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
@@ -6,7 +22,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 from django.db import transaction as db_transaction
-from django.utils import timezone
 
 from .models import Wallet, Transaction, RazorpayOrder, AstrologerPayout
 from .serializers import (
@@ -21,7 +36,7 @@ from .webhooks import handle_webhook
 from users.permissions import IsAstrologer
 
 
-# Razorpay test-mode client
+# Razorpay client (test mode — swap keys for production)
 razorpay_client = razorpay.Client(
     auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
 )
@@ -30,7 +45,15 @@ razorpay_client = razorpay.Client(
 class WalletAPIView(APIView):
     """
     GET /api/wallet/
-    View wallet balance and pending settlement.
+    Returns wallet balance + pending settlement for logged-in user.
+
+    RESPONSE:
+    {
+        "id": "uuid",
+        "balance": "150.00",
+        "pending_settlement": "0.00",
+        "total_earned": "0.00"
+    }
     """
     permission_classes = [IsAuthenticated]
 
@@ -43,11 +66,22 @@ class CreateOrderAPIView(APIView):
     """
     POST /api/wallet/recharge/
     Step 1 of payment: Create a Razorpay order.
-    Client receives order_id and uses it in Razorpay checkout.
+    Flutter receives order_id and opens Razorpay checkout.
 
-    PAYMENT LIFECYCLE:
-    create_order → client pays on Razorpay → webhook fires →
-    verify_payment (optional fallback) → wallet credited
+    This matches the recharge bottom sheet in Image 3.
+    User selects ₹100 / ₹200 / ₹500 → taps Proceed To Pay → this API called.
+
+    REQUEST:
+    { "amount": 100 }
+
+    RESPONSE:
+    {
+        "order_id": "order_xyz",
+        "amount": 100,
+        "currency": "INR",
+        "key_id": "rzp_test_xxx",
+        "user_phone": "9876543210"
+    }
     """
     permission_classes = [IsAuthenticated]
 
@@ -57,13 +91,13 @@ class CreateOrderAPIView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         amount_inr   = serializer.validated_data['amount']
-        amount_paise = int(amount_inr * 100)   # Razorpay works in paise
+        amount_paise = int(amount_inr * 100)   # Razorpay requires paise
 
         try:
             rz_order = razorpay_client.order.create({
-                'amount':   amount_paise,
-                'currency': 'INR',
-                'payment_capture': 1,   # Auto-capture
+                'amount':          amount_paise,
+                'currency':        'INR',
+                'payment_capture': 1,           # Auto-capture on payment
                 'notes': {
                     'user_id': str(request.user.id),
                     'phone':   request.user.phone,
@@ -75,7 +109,7 @@ class CreateOrderAPIView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        # Save order in DB
+        # Save Razorpay order in our DB for tracking
         RazorpayOrder.objects.create(
             user              = request.user,
             razorpay_order_id = rz_order['id'],
@@ -95,8 +129,28 @@ class CreateOrderAPIView(APIView):
 class VerifyPaymentAPIView(APIView):
     """
     POST /api/wallet/verify-payment/
-    Step 2 (fallback): Called from frontend after payment.
-    Webhook is primary; this is a backup for missed webhooks.
+    Fallback: Called from Flutter AFTER payment completes on Razorpay.
+
+    WHY THIS EXISTS:
+    Webhooks are primary. But if webhook is delayed or missed,
+    Flutter calls this immediately after user completes payment
+    so wallet is credited without waiting.
+
+    If webhook already processed it → returns already_done: True (no double credit).
+
+    REQUEST:
+    {
+        "razorpay_order_id":   "order_xyz",
+        "razorpay_payment_id": "pay_abc",
+        "razorpay_signature":  "sig_hash"
+    }
+
+    RESPONSE:
+    {
+        "message": "Payment verified. Wallet credited.",
+        "amount_credited": 100,
+        "new_balance": 250.00
+    }
     """
     permission_classes = [IsAuthenticated]
 
@@ -109,7 +163,7 @@ class VerifyPaymentAPIView(APIView):
         payment_id = serializer.validated_data['razorpay_payment_id']
         signature  = serializer.validated_data['razorpay_signature']
 
-        # Verify signature
+        # Verify Razorpay signature before doing anything
         if not verify_razorpay_signature(order_id, payment_id, signature):
             return Response(
                 {'error': 'Invalid payment signature. Possible fraud attempt.'},
@@ -121,21 +175,32 @@ class VerifyPaymentAPIView(APIView):
                 razorpay_order_id=order_id, user=request.user
             )
         except RazorpayOrder.DoesNotExist:
-            return Response({'error': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {'error': 'Order not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
+        # Already processed by webhook → just return success
         if order.status == RazorpayOrder.STATUS_PAID:
-            return Response({'message': 'Payment already verified.', 'already_done': True})
+            wallet = get_or_create_wallet(request.user)
+            return Response({
+                'message':         'Payment already verified.',
+                'already_done':    True,
+                'amount_credited': order.amount,
+                'new_balance':     wallet.balance,
+            })
 
+        # Process payment (webhook hasn't fired yet)
         with db_transaction.atomic():
             order.razorpay_payment_id = payment_id
             order.razorpay_signature  = signature
             order.status              = RazorpayOrder.STATUS_PAID
             order.save()
 
-            txn = credit_wallet(
+            credit_wallet(
                 user            = request.user,
                 amount          = order.amount,
-                description     = f"Wallet recharge ₹{order.amount}",
+                description     = f"Wallet recharge ₹{order.amount} (verified)",
                 order           = order,
                 idempotency_key = f"verify-{payment_id}",
             )
@@ -151,19 +216,40 @@ class VerifyPaymentAPIView(APIView):
 class WebhookAPIView(APIView):
     """
     POST /api/wallet/webhook/
-    Razorpay sends payment events here.
-    No JWT auth — verified by Razorpay signature instead.
+    Razorpay sends payment events here automatically.
+
+    NO JWT AUTH — authenticated via Razorpay-Signature header instead.
+    Must be publicly accessible (no firewall block).
 
     Setup in Razorpay Dashboard:
-    Settings → Webhooks → Add URL → https://yourdomain/api/wallet/webhook/
-    Events: payment.captured, payment.failed, refund.created
+      Settings → Webhooks → Add URL
+      URL: https://yourdomain.com/api/wallet/webhook/
+      Events to enable:
+        ✓ payment.captured
+        ✓ payment.failed
+        ✓ refund.created
+      Secret: set RAZORPAY_WEBHOOK_SECRET in your .env
+
+    WHAT HAPPENS ON payment.captured:
+      1. Signature verified
+      2. WebhookLog created
+      3. RazorpayOrder.status → 'paid'
+      4. Wallet.balance += amount
+      5. Transaction record created
+      6. User can now start chat/call session
     """
-    permission_classes = [AllowAny]
+    permission_classes    = [AllowAny]
     authentication_classes = []   # No JWT for webhooks
 
     def post(self, request):
         payload_body = request.body
         signature    = request.headers.get('X-Razorpay-Signature', '')
+
+        if not signature:
+            return Response(
+                {'error': 'Missing X-Razorpay-Signature header'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         success, message = handle_webhook(payload_body, signature)
 
@@ -176,7 +262,27 @@ class WebhookAPIView(APIView):
 class TransactionListAPIView(ListAPIView):
     """
     GET /api/wallet/transactions/
-    Paginated transaction history for logged-in user.
+    Paginated transaction history. Shows recharges, session debits, refunds.
+
+    RESPONSE (paginated):
+    {
+        "results": [
+            {
+                "transaction_type": "recharge",
+                "amount": "100.00",
+                "balance_after": "250.00",
+                "description": "Wallet recharge via Razorpay (pay_abc)",
+                "created_at": "2024-01-15T10:30:00Z"
+            },
+            {
+                "transaction_type": "deduction",
+                "amount": "60.00",
+                "balance_after": "190.00",
+                "description": "Session abc123 — minute #1",
+                "created_at": "2024-01-15T11:00:00Z"
+            }
+        ]
+    }
     """
     serializer_class   = TransactionSerializer
     permission_classes = [IsAuthenticated]
@@ -189,8 +295,11 @@ class TransactionListAPIView(ListAPIView):
 class PayoutRequestAPIView(APIView):
     """
     POST /api/wallet/payout/
-    Astrologer requests withdrawal of pending_settlement balance.
-    Minimum ₹500. Admin reviews and marks as paid.
+    Astrologer requests withdrawal of their pending_settlement.
+    Minimum ₹500. Admin approves and transfers manually.
+
+    GET /api/wallet/payout/
+    Astrologer views their payout history.
     """
     permission_classes = [IsAuthenticated, IsAstrologer]
 
@@ -204,8 +313,14 @@ class PayoutRequestAPIView(APIView):
         amount = serializer.validated_data['amount']
 
         with db_transaction.atomic():
-            # Deduct from pending_settlement
             wallet = get_or_create_wallet(request.user)
+
+            if wallet.pending_settlement < amount:
+                return Response(
+                    {'error': f'Insufficient pending settlement. Available: ₹{wallet.pending_settlement}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             wallet.pending_settlement -= amount
             wallet.save(update_fields=['pending_settlement', 'updated_at'])
 
@@ -217,5 +332,6 @@ class PayoutRequestAPIView(APIView):
         )
 
     def get(self, request):
+        from .models import AstrologerPayout
         payouts = AstrologerPayout.objects.filter(astrologer=request.user)
         return Response(PayoutRequestSerializer(payouts, many=True).data)

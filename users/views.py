@@ -43,11 +43,6 @@ from .serializers import (
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 0 (optional) — Check if phone is registered
 # POST /api/auth/check-phone/
-#
-# Request:  { "phone": "9999999999" }
-# Response: { "exists": true, "message": "..." }
-#
-# Frontend uses this to show "Login" vs "Signup" label before OTP.
 # ─────────────────────────────────────────────────────────────────────────────
 class CheckPhoneAPIView(APIView):
     permission_classes = [AllowAny]
@@ -55,27 +50,31 @@ class CheckPhoneAPIView(APIView):
     def post(self, request):
         serializer = PhoneCheckSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Validation failed. Please check your input.',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         phone  = serializer.validated_data['phone']
         exists = User.objects.filter(phone=phone).exists()
 
         return Response({
-            'exists':  exists,
+            'success': True,
             'message': 'User found. Proceed to OTP.' if exists
                        else 'New user. Proceed to OTP.',
-        })
+            'data': {
+                'exists': exists,
+            }
+        }, status=status.HTTP_200_OK)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 1 — Send OTP
 # POST /api/auth/send-otp/
-#
-# Request:  { "phone": "9999999999" }
-# Response: { "success": true, "message": "OTP sent to +919999999999." }
-#
-# Currently uses StaticOTPBackend (code = 1234).
-# Swap backend in otp_service.py for Firebase/Twilio.
 # ─────────────────────────────────────────────────────────────────────────────
 class SendOTPAPIView(APIView):
     permission_classes = [AllowAny]
@@ -83,28 +82,39 @@ class SendOTPAPIView(APIView):
     def post(self, request):
         serializer = SendOTPSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Validation failed. Please check your input.',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         phone  = serializer.validated_data['phone']
         result = otp_backend.send_otp(phone)
 
         if not result.get('success'):
             return Response(
-                {'error': result.get('message', 'Failed to send OTP.')},
+                {
+                    'success': False,
+                    'message': result.get('message', 'Failed to send OTP.'),
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        return Response(result, status=status.HTTP_200_OK)
+        return Response(
+            {
+                'success': True,
+                'message': result.get('message', f'OTP sent to {phone} successfully.'),
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 2 — Verify OTP
 # POST /api/auth/verify-otp/
-#
-# Request:  { "phone": "9999999999", "otp_code": "1234" }
-#
-# Existing user  → { "step": "login_complete", "tokens": {...}, "user": {...} }
-# New user       → { "step": "signup_incomplete", "temp_token": "..." }
 # ─────────────────────────────────────────────────────────────────────────────
 class VerifyOTPAPIView(APIView):
     permission_classes = [AllowAny]
@@ -112,7 +122,14 @@ class VerifyOTPAPIView(APIView):
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Validation failed. Please check your input.',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         phone    = serializer.validated_data['phone']
         otp_code = serializer.validated_data['otp_code']
@@ -121,7 +138,10 @@ class VerifyOTPAPIView(APIView):
         result = otp_backend.verify_otp(phone, otp_code)
         if not result.get('valid'):
             return Response(
-                {'error': result.get('message', 'OTP verification failed.')},
+                {
+                    'success': False,
+                    'message': result.get('message', 'OTP verification failed.'),
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -129,38 +149,31 @@ class VerifyOTPAPIView(APIView):
         try:
             user = User.objects.get(phone=phone)
             return Response({
-                'step':   'login_complete',
-                'tokens': get_tokens(user),
-                'user':   UserProfileSerializer(user).data,
-            })
+                'success': True,
+                'message': 'OTP verified. Login successful.',
+                'data': {
+                    'step':   'login_complete',
+                    'tokens': get_tokens(user),
+                    'user':   UserProfileSerializer(user).data,
+                }
+            }, status=status.HTTP_200_OK)
 
         # ── New user → temp token for Screen 2 ──────────────────────────────
         except User.DoesNotExist:
             temp_token = generate_temp_token(phone)
             return Response({
-                'step':       'signup_incomplete',
-                'temp_token': temp_token,
-                'message':    'OTP verified. Please complete your profile.',
+                'success': True,
+                'message': 'OTP verified. Please complete your profile.',
+                'data': {
+                    'step':       'signup_incomplete',
+                    'temp_token': temp_token,
+                }
             }, status=status.HTTP_200_OK)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 3 — Complete Profile (new users only)
 # POST /api/auth/complete-profile/
-#
-# Request:
-# {
-#   "temp_token":         "<from verify-otp>",
-#   "full_name":          "Ajay Kumar",
-#   "gender":             "male",
-#   "date_of_birth":      "2000-03-20",
-#   "place_of_birth":     "Panna, Madhya Pradesh, India",
-#   "time_of_birth":      "12:30",       ← omit if birth_time_unknown=true
-#   "birth_time_unknown": false,
-#   "role":               "client"
-# }
-#
-# Response: { "step": "signup_complete", "tokens": {...}, "user": {...} }
 # ─────────────────────────────────────────────────────────────────────────────
 class CompleteProfileAPIView(APIView):
     permission_classes = [AllowAny]
@@ -168,7 +181,14 @@ class CompleteProfileAPIView(APIView):
     def post(self, request):
         serializer = CompleteProfileSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Validation failed. Please check your input.',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         data = serializer.validated_data
 
@@ -176,14 +196,23 @@ class CompleteProfileAPIView(APIView):
         try:
             token_data = decode_temp_token(data['temp_token'])
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {
+                    'success': False,
+                    'message': str(e),
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
         phone = token_data['phone']
 
         # Guard: prevent double registration
         if User.objects.filter(phone=phone).exists():
             return Response(
-                {'error': 'User already registered. Please login.'},
+                {
+                    'success': False,
+                    'message': 'User already registered. Please login.',
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -200,41 +229,59 @@ class CompleteProfileAPIView(APIView):
             birth_time_unknown = data.get('birth_time_unknown', False),
         )
 
-        return Response({
-            'step':   'signup_complete',
-            'tokens': get_tokens(user),
-            'user':   UserProfileSerializer(user).data,
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                'success': True,
+                'message': 'Profile completed. Signup successful.',
+                'data': {
+                    'step':   'signup_complete',
+                    'tokens': get_tokens(user),
+                    'user':   UserProfileSerializer(user).data,
+                }
+            },
+            status=status.HTTP_201_CREATED
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROFILE — View & Edit
-# GET  /api/auth/profile/  → returns own profile
-# PUT  /api/auth/profile/  → updates editable fields
-#
-# Editable: full_name, gender, date_of_birth, place_of_birth,
-#           time_of_birth, birth_time_unknown, profile_photo
+# GET  /api/auth/profile/
+# PUT  /api/auth/profile/
 # ─────────────────────────────────────────────────────────────────────────────
 class UserProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(UserProfileSerializer(request.user).data)
+        return Response({
+            'success': True,
+            'message': 'Profile fetched successfully.',
+            'data': UserProfileSerializer(request.user).data,
+        }, status=status.HTTP_200_OK)
 
     def put(self, request):
         serializer = UserProfileSerializer(
             request.user, data=request.data, partial=True
         )
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Profile update failed. Please fix the errors.',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
         serializer.save()
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Profile updated successfully.',
+            'data': serializer.data,
+        }, status=status.HTTP_200_OK)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOGOUT
 # POST /api/auth/logout/
-# Body: { "refresh": "<refresh_token>" }
 # ─────────────────────────────────────────────────────────────────────────────
 class LogoutAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -243,7 +290,10 @@ class LogoutAPIView(APIView):
         refresh_token = request.data.get('refresh')
         if not refresh_token:
             return Response(
-                {'error': 'refresh token is required.'},
+                {
+                    'success': False,
+                    'message': 'Refresh token is required.',
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -251,7 +301,13 @@ class LogoutAPIView(APIView):
             token.blacklist()
         except Exception:
             return Response(
-                {'error': 'Invalid or already blacklisted token.'},
+                {
+                    'success': False,
+                    'message': 'Invalid or already blacklisted token.',
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return Response({'message': 'Logged out successfully.'})
+        return Response({
+            'success': True,
+            'message': 'Logged out successfully.',
+        }, status=status.HTTP_200_OK)
