@@ -107,6 +107,7 @@ class SendOTPAPIView(APIView):
             {
                 'success': True,
                 'message': result.get('message', f'OTP sent to {phone} successfully.'),
+                'otp': result.get('_debug_otp'),  # ← ye add karo
             },
             status=status.HTTP_200_OK
         )
