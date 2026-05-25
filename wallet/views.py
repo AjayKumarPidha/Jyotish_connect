@@ -335,3 +335,32 @@ class PayoutRequestAPIView(APIView):
         from .models import AstrologerPayout
         payouts = AstrologerPayout.objects.filter(astrologer=request.user)
         return Response(PayoutRequestSerializer(payouts, many=True).data)
+    
+    
+    
+class DebugRazorpayAPIView(APIView):
+    permission_classes = [AllowAny]  # temp AllowAny for testing
+
+    def get(self, request):
+        try:
+            import razorpay
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            order = client.order.create({
+                'amount': 10000,
+                'currency': 'INR',
+                'payment_capture': 1,
+            })
+            return Response({
+                'status': 'SUCCESS ✅',
+                'razorpay_order_id': order['id'],
+                'key_used': settings.RAZORPAY_KEY_ID,
+            })
+        except Exception as e:
+            return Response({
+                'status': 'FAILED ❌',
+                'error': str(e),
+                'key_used': getattr(settings, 'RAZORPAY_KEY_ID', 'NOT FOUND'),
+                'secret_exists': bool(getattr(settings, 'RAZORPAY_KEY_SECRET', None)),
+            })
