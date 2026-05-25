@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     DebugRazorpayAPIView,
+    GenerateTestSignatureAPIView,
     WalletAPIView,
     CreateOrderAPIView,
     VerifyPaymentAPIView,
@@ -17,4 +18,5 @@ urlpatterns = [
     path('transactions/',   TransactionListAPIView.as_view(),name='wallet-transactions'),
     path('payout/',         PayoutRequestAPIView.as_view(),  name='wallet-payout'),
     path('debug-razorpay/', DebugRazorpayAPIView.as_view(), name='debug-razorpay'),
+    path('generate-signature/', GenerateTestSignatureAPIView.as_view(), name='generate-test-signature'),
 ]

@@ -364,3 +364,27 @@ class DebugRazorpayAPIView(APIView):
                 'key_used': getattr(settings, 'RAZORPAY_KEY_ID', 'NOT FOUND'),
                 'secret_exists': bool(getattr(settings, 'RAZORPAY_KEY_SECRET', None)),
             })
+            
+            
+            
+class GenerateTestSignatureAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        import hmac, hashlib
+        
+        order_id   = request.data.get('order_id')
+        payment_id = request.data.get('payment_id')
+        secret     = settings.RAZORPAY_KEY_SECRET
+
+        signature = hmac.new(
+            secret.encode(),
+            f"{order_id}|{payment_id}".encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        return Response({
+            'order_id':   order_id,
+            'payment_id': payment_id,
+            'signature':  signature,
+        })
