@@ -388,3 +388,41 @@ class GenerateTestSignatureAPIView(APIView):
             'payment_id': payment_id,
             'signature':  signature,
         })
+        import razorpay     
+from django.views.generic import TemplateView
+from django.conf import settings
+
+class TestPaymentView(TemplateView):
+    template_name = 'test_payment.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        try:
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            
+            order_id = self.request.GET.get('order_id')
+            
+            if order_id:
+                # Sirf fetch karo, naya mat banao
+                order = client.order.fetch(order_id)
+                context['order_id'] = order['id']
+                context['amount']   = order['amount']
+            else:
+                # Bina order_id ke naya banao
+                order = client.order.create({
+                    'amount': 10000,
+                    'currency': 'INR',
+                    'payment_capture': 1,
+                })
+                context['order_id'] = order['id']
+                context['amount']   = 10000
+                
+            context['key_id'] = settings.RAZORPAY_KEY_ID
+            
+        except Exception as e:
+            context['error'] = str(e)  # Error dikhao
+        
+        return context

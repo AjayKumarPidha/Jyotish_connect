@@ -8,6 +8,7 @@ from .views import (
     WebhookAPIView,
     TransactionListAPIView,
     PayoutRequestAPIView,
+    TestPaymentView,
 )
 
 urlpatterns = [
@@ -19,4 +20,5 @@ urlpatterns = [
     path('payout/',         PayoutRequestAPIView.as_view(),  name='wallet-payout'),
     path('debug-razorpay/', DebugRazorpayAPIView.as_view(), name='debug-razorpay'),
     path('generate-signature/', GenerateTestSignatureAPIView.as_view(), name='generate-test-signature'),
+    path('test-payment/',    TestPaymentView.as_view(),      name='test-payment'),
 ]

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Payment</title>
+</head>
+<body>
+
+{% if error %}
+    <h3 style="color:red;">Error: {{ error }}</h3>
+{% else %}
+    <h2>Test Payment — ₹100</h2>
+    <p><b>Order ID:</b> {{ order_id }}</p>
+    
+    <button id="pay" style="padding:20px 40px; font-size:20px; cursor:pointer;">
+        Pay ₹100
+    </button>
+    
+    <h3>Result (Postman mein use karo):</h3>
+    <pre id="result" style="background:#f0f0f0; padding:20px; font-size:14px;">
+        Payment ke baad yahan values aayengi...
+    </pre>
+
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script>
+        document.getElementById('pay').onclick = function() {
+            new Razorpay({
+                key: "{{ key_id }}",
+                amount: {{ amount }},
+                currency: "INR",
+                order_id: "{{ order_id }}",
+                handler: function(r) {
+                    document.getElementById('result').innerText =
+                        "razorpay_order_id:  " + r.razorpay_order_id   + "\n\n" +
+                        "razorpay_payment_id: " + r.razorpay_payment_id + "\n\n" +
+                        "razorpay_signature:  " + r.razorpay_signature;
+                }
+            }).open();
+        }
+    </script>
+{% endif %}
+
+</body>
+</html>
