@@ -252,11 +252,11 @@ class AgoraTokenAPIView(APIView):
         app_id      = settings.AGORA_APP_ID
         certificate = settings.AGORA_APP_CERTIFICATE
         channel     = session.agora_channel
-        uid         = 1 
+        uid         = 0
         expiry      = int(time.time()) + 3600  # 1 hour
 
         token = RtcTokenBuilder.buildTokenWithUid(
-            app_id, certificate, channel, uid,
+            app_id, certificate, channel, uid,1,
             RtcTokenBuilder.Role_Publisher, expiry
         )
 
