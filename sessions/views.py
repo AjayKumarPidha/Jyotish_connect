@@ -226,13 +226,7 @@ class SessionHistoryAPIView(ListAPIView):
         
         
         
-
-
 class AgoraTokenAPIView(APIView):
-    """
-    GET /api/sessions/<session_id>/agora-token/
-    Call/Video ke liye Agora token generate karo
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id):
@@ -240,7 +234,6 @@ class AgoraTokenAPIView(APIView):
             Session, id=session_id, status=Session.STATUS_ACTIVE
         )
 
-        # Sirf client ya astrologer access kar sake
         is_client     = session.client == request.user
         is_astrologer = session.astrologer.user == request.user
         if not (is_client or is_astrologer):
@@ -253,17 +246,22 @@ class AgoraTokenAPIView(APIView):
         certificate = settings.AGORA_APP_CERTIFICATE
         channel     = session.agora_channel
         uid         = 0
-        expiry      = int(time.time()) + 3600  # 1 hour
+        expiry      = int(time.time()) + 3600
 
+        # ✅ Sahi syntax
         token = RtcTokenBuilder.buildTokenWithUid(
-            app_id, certificate, channel, uid,1,
-            RtcTokenBuilder.Role_Publisher, expiry
+            app_id,
+            certificate,
+            channel,
+            uid,
+            1,        # ← Role_Publisher = 1 (integer)
+            expiry
         )
 
         return Response({
-            'token':   token,
-            'channel': channel,
-            'app_id':  app_id,
-            'uid':     uid,
+            'token':      token,
+            'channel':    channel,
+            'app_id':     app_id,
+            'uid':        uid,
             'expires_in': 3600,
         })
