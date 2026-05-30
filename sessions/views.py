@@ -252,7 +252,7 @@ class AgoraTokenAPIView(APIView):
         app_id      = settings.AGORA_APP_ID
         certificate = settings.AGORA_APP_CERTIFICATE
         channel     = session.agora_channel
-        uid         = 0  # 0 = Agora khud assign karta hai
+        uid         = 1 
         expiry      = int(time.time()) + 3600  # 1 hour
 
         token = RtcTokenBuilder.buildTokenWithUid(
