@@ -99,13 +99,9 @@ class AcceptSessionAPIView(APIView):
         session.save(update_fields=['status', 'started_at'])
         return Response(SessionSerializer(session).data)
 
+from wallet.utils import get_or_create_wallet  # already imported hai
 
 class EndSessionAPIView(APIView):
-    """
-    POST /api/sessions/<id>/end/
-    Client or astrologer ends the session.
-    Calculates billing and splits earnings (50/50).
-    """
     permission_classes = [IsAuthenticated, IsClientOrAstrologer]
 
     def post(self, request, session_id):
@@ -122,9 +118,8 @@ class EndSessionAPIView(APIView):
         duration = (session.ended_at - session.started_at).total_seconds() / 60
         session.duration_minutes = Decimal(str(round(duration, 2)))
 
-        # Free session billing: first 5 min free
         if session.is_free_session:
-            free_mins        = Decimal(str(FREE_SESSION_MINUTES))
+            free_mins         = Decimal(str(FREE_SESSION_MINUTES))
             billable_duration = max(Decimal('0'), session.duration_minutes - free_mins)
             session.total_amount = billable_duration * session.rate_per_min
             session.client.has_used_free_session = True
@@ -132,23 +127,24 @@ class EndSessionAPIView(APIView):
         else:
             session.total_amount = session.duration_minutes * session.rate_per_min
 
-        # Split earnings: 50% company, 50% astrologer
         commission_pct              = Decimal(str(settings.PLATFORM_COMMISSION)) / 100
         session.platform_commission = session.total_amount * commission_pct
         session.astrologer_earnings = session.total_amount - session.platform_commission
         session.save()
 
-        # Add astrologer earnings to pending_settlement
-        split_session_earnings(session)
+        # Astrologer ki pending_settlement mein add karo
+        astro_wallet = get_or_create_wallet(session.astrologer.user)
+        astro_wallet.pending_settlement += session.astrologer_earnings
+        astro_wallet.total_earned       += session.astrologer_earnings
+        astro_wallet.save(update_fields=['pending_settlement', 'total_earned', 'updated_at'])
 
-        # Update astrologer stats
+        # Astrologer status online karo
         astro = session.astrologer
         astro.total_sessions += 1
         astro.status          = AstrologerProfile.STATUS_ONLINE
         astro.save(update_fields=['total_sessions', 'status'])
 
         return Response(SessionSerializer(session).data)
-
 
 class BillingTickAPIView(APIView):
     """
