@@ -13,3 +13,4 @@ channels==4.3.2
 whitenoise==6.7.0
 cloudinary
 django-cloudinary-storage
+agora-token-builder==1.0.0

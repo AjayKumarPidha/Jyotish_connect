@@ -6,7 +6,11 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(DEBUG=(bool, False))
-environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
+# Aise karo — dono files support karo
+env_file = os.path.join(BASE_DIR, '.env.docker')
+if not os.path.exists(env_file):
+    env_file = os.path.join(BASE_DIR, '.env')
+environ.Env.read_env(env_file)
 
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-in-production')
 
@@ -146,6 +150,11 @@ CORS_ALLOW_ALL_ORIGINS = True   # Change to specific origins in production
 RAZORPAY_KEY_ID      = env('RAZORPAY_KEY_ID',      default='rzp_test_your_key_id')
 RAZORPAY_KEY_SECRET  = env('RAZORPAY_KEY_SECRET',   default='your_test_secret')
 RAZORPAY_WEBHOOK_SECRET = env('RAZORPAY_WEBHOOK_SECRET', default='your_webhook_secret')
+
+#### AGORA CONFIG (TEST VALUES, REPLACE IN PRODUCTION) ─────────────────────────
+AGORA_APP_ID          = os.environ.get('AGORA_APP_ID', '')
+AGORA_APP_CERTIFICATE = os.environ.get('AGORA_APP_CERTIFICATE', '')
+###
 
 # ── Business Rules ────────────────────────────────────────────────────────────
 PLATFORM_COMMISSION  = 50   # Company keeps 50%, astrologer gets 50%

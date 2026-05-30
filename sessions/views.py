@@ -15,6 +15,9 @@ from astrologers.models import AstrologerProfile
 from wallet.utils import debit_wallet,  get_or_create_wallet
 from users.permissions import IsClient, IsAstrologer, IsClientOrAstrologer
 
+from agora_token_builder import RtcTokenBuilder
+import time
+
 FREE_SESSION_MINUTES = 5
 
 
@@ -224,3 +227,47 @@ class SessionHistoryAPIView(ListAPIView):
         return Session.objects.filter(
             client=user
         ).select_related('client', 'astrologer')
+        
+        
+        
+
+
+class AgoraTokenAPIView(APIView):
+    """
+    GET /api/sessions/<session_id>/agora-token/
+    Call/Video ke liye Agora token generate karo
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            Session, id=session_id, status=Session.STATUS_ACTIVE
+        )
+
+        # Sirf client ya astrologer access kar sake
+        is_client     = session.client == request.user
+        is_astrologer = session.astrologer.user == request.user
+        if not (is_client or is_astrologer):
+            return Response(
+                {'error': 'Unauthorized'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        app_id      = settings.AGORA_APP_ID
+        certificate = settings.AGORA_APP_CERTIFICATE
+        channel     = session.agora_channel
+        uid         = 0  # 0 = Agora khud assign karta hai
+        expiry      = int(time.time()) + 3600  # 1 hour
+
+        token = RtcTokenBuilder.buildTokenWithUid(
+            app_id, certificate, channel, uid,
+            RtcTokenBuilder.Role_Publisher, expiry
+        )
+
+        return Response({
+            'token':   token,
+            'channel': channel,
+            'app_id':  app_id,
+            'uid':     uid,
+            'expires_in': 3600,
+        })
