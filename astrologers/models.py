@@ -7,6 +7,7 @@ class Category(models.Model):
     """Session type category: Chat, Call, Video"""
     name        = models.CharField(max_length=50, unique=True)
     is_active   = models.BooleanField(default=True)
+    image       = models.ImageField(upload_to='category_images/', null=True, blank=True)
 
     class Meta:
         db_table        = 'categories'

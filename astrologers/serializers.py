@@ -3,9 +3,23 @@ from .models import AstrologerProfile, Review, Category, Specialty, Language
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+    
     class Meta:
         model  = Category
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'image']
+        
+    def get_image(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get('request')
+        if request:
+            # request.build_absolute_uri respects the actual port
+            return request.build_absolute_uri(obj.image.url)
+        # fallback: read MEDIA_URL from settings
+        from django.conf import settings
+        return f"{settings.MEDIA_URL}{obj.image}"
+
 
 
 class SpecialtySerializer(serializers.ModelSerializer):

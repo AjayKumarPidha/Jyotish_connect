@@ -388,7 +388,8 @@ class GenerateTestSignatureAPIView(APIView):
             'payment_id': payment_id,
             'signature':  signature,
         })
-        import razorpay     
+
+import razorpay     
 from django.views.generic import TemplateView
 from django.conf import settings
 
