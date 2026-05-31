@@ -116,6 +116,13 @@ class Transaction(models.Model):
         (TYPE_SETTLEMENT, 'Astrologer Settlement'),
         (TYPE_COMMISSION, 'Platform Commission'),
     ]
+    SESSION_TYPE_CHOICES = [
+        ('chat',  'Chat'),
+        ('call',  'Call'),
+        ('video', 'Video'),
+    ]
+    
+    
 
     id               = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     wallet           = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
@@ -126,6 +133,10 @@ class Transaction(models.Model):
     order            = models.ForeignKey(
         RazorpayOrder, on_delete=models.SET_NULL, null=True, blank=True
     )
+    session_type    = models.CharField(
+        max_length=10, choices=SESSION_TYPE_CHOICES, null=True, blank=True
+    )
+    astrologer_name = models.CharField(max_length=150, blank=True, default='')
     idempotency_key  = models.CharField(max_length=100, unique=True, null=True, blank=True)
     created_at       = models.DateTimeField(auto_now_add=True)
 

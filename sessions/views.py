@@ -192,12 +192,17 @@ class BillingTickAPIView(APIView):
                 {'error': 'Insufficient balance. Session ended.'},
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )
-
+            
+        # ✅ FIXED
         debit_wallet(
-            user=request.user,
-            amount=amount,
-            description=f"Session {session_id} - 1 min {session.session_type}",
+            user            = request.user,
+            amount          = amount,
+            description     = f"Session {session_id} - 1 min {session.session_type}",
+            session_type    = session.session_type,
+            astrologer_name = session.astrologer.display_name,
         )
+
+       
         BillingTick.objects.create(session=session, amount_deducted=amount)
 
         return Response({

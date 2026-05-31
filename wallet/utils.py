@@ -16,6 +16,11 @@ from django.db import transaction as db_transaction
 logger = logging.getLogger(__name__)
 
 
+# ─── Wallet Helpers ──────────────────────────────────────────────────────────
+
+from django.db import transaction as db_transaction
+from .models import Wallet, Transaction
+
 # ─── Razorpay Signature Verification ────────────────────────────────────────
 
 def verify_webhook_signature(payload_body: bytes, signature: str) -> bool:
@@ -39,41 +44,15 @@ def verify_razorpay_signature(order_id: str, payment_id: str, signature: str) ->
     return hmac.compare_digest(expected, signature)
 
 
-# ─── Wallet Helpers ──────────────────────────────────────────────────────────
-
 def get_or_create_wallet(user):
-    """Get or create wallet for any user (client or astrologer)."""
-    from .models import Wallet
     wallet, _ = Wallet.objects.get_or_create(user=user)
     return wallet
 
-
-# ─── Credit (Razorpay Recharge) ──────────────────────────────────────────────
-
-def credit_wallet(user, amount: Decimal, description: str,
-                  order=None, idempotency_key: str = None):
-    """
-    Credit user wallet after successful Razorpay payment.
-    Called by:
-      - webhooks.py → _handle_payment_captured()
-      - views.py    → VerifyPaymentAPIView (fallback)
-
-    Idempotency key prevents double-credit if webhook fires twice.
-    """
-    from .models import Wallet, Transaction
-
-    # Idempotency check — skip if already processed
-    if idempotency_key:
-        if Transaction.objects.filter(idempotency_key=idempotency_key).exists():
-            logger.info(f"Duplicate credit prevented: {idempotency_key}")
-            return Transaction.objects.get(idempotency_key=idempotency_key)
-
+def credit_wallet(user, amount, description='', order=None, idempotency_key=None):
     with db_transaction.atomic():
-        wallet = Wallet.objects.select_for_update().get_or_create(user=user)[0]
-        wallet.balance += Decimal(str(amount))
-        wallet.save(update_fields=['balance', 'updated_at'])
-
-        txn = Transaction.objects.create(
+        wallet = get_or_create_wallet(user)
+        wallet.credit(amount)
+        Transaction.objects.create(
             wallet           = wallet,
             transaction_type = Transaction.TYPE_RECHARGE,
             amount           = amount,
@@ -82,20 +61,18 @@ def credit_wallet(user, amount: Decimal, description: str,
             order            = order,
             idempotency_key  = idempotency_key,
         )
+    return wallet
 
-    logger.info(f"Credited ₹{amount} to {user.phone} | key={idempotency_key}")
-    return txn
-
-
-# ─── Debit (Session Per-Minute Billing) ──────────────────────────────────────
+# ── NEW ─────────────────────────────────────────────────────────────────────
 def debit_wallet(user, amount, description='', order=None,
                  idempotency_key=None, session_type=None, astrologer_name=''):
-    from .models import Wallet, Transaction
-
+    """
+    Deducts from wallet and records Transaction with session context.
+    Call this from sessions/views.py tick handler.
+    """
     with db_transaction.atomic():
         wallet = get_or_create_wallet(user)
-        wallet.debit(amount)
-
+        wallet.debit(amount)   # raises ValueError if insufficient
         Transaction.objects.create(
             wallet           = wallet,
             transaction_type = Transaction.TYPE_DEDUCTION,
@@ -104,10 +81,11 @@ def debit_wallet(user, amount, description='', order=None,
             description      = description,
             order            = order,
             idempotency_key  = idempotency_key,
-            session_type     = session_type,        # ← saves to DB
-            astrologer_name  = astrologer_name,     # ← saves to DB
+            session_type     = session_type,
+            astrologer_name  = astrologer_name,
         )
     return wallet
+# ────────────────────────────────────────────────────────────────────────────
 
 # ─── Astrologer Earnings ─────────────────────────────────────────────────────
 
