@@ -52,14 +52,14 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 class AstrologerListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for listing astrologers."""
-    categories  = CategorySerializer(many=True, read_only=True)
+
     profile_photo = serializers.SerializerMethodField()
 
     class Meta:
         model  = AstrologerProfile
         fields = [
             'id', 'display_name', 'bio', 'experience_years',
-            'categories', 'specialties', 'languages',
+            'specialties', 'languages',
             'chat_rate_per_min', 'call_rate_per_min', 'video_rate_per_min',
             'status', 'average_rating', 'total_sessions', 'profile_photo',
         ]
