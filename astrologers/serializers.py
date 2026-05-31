@@ -33,14 +33,16 @@ class LanguageSerializer(serializers.ModelSerializer):
         model  = Language
         fields = ['id', 'name']
 
-
 class ReviewSerializer(serializers.ModelSerializer):
-    client_phone = serializers.CharField(source='client.phone', read_only=True)
+    client_name = serializers.SerializerMethodField()
 
     class Meta:
         model  = Review
-        fields = ['id', 'client_phone', 'rating', 'comment', 'created_at']
+        fields = ['id', 'client_name', 'rating', 'comment', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+    def get_client_name(self, obj):
+        return obj.client.full_name or "Anonymous"
 
     def validate_rating(self, value):
         if not (1 <= value <= 5):
@@ -74,7 +76,7 @@ class AstrologerListSerializer(serializers.ModelSerializer):
         return f"{settings.MEDIA_URL}{obj.profile_photo}"
 
 class AstrologerDetailSerializer(serializers.ModelSerializer):
-    categories   = CategorySerializer(many=True, read_only=True)
+  
 
     reviews      = ReviewSerializer(many=True, read_only=True)
     profile_photo = serializers.SerializerMethodField()   # ← manual URL build
@@ -83,7 +85,7 @@ class AstrologerDetailSerializer(serializers.ModelSerializer):
         model  = AstrologerProfile
         fields = [
             'id', 'display_name', 'bio', 'experience_years',
-            'categories', 'specialties', 'languages',
+            'specialties', 'languages',
             'chat_rate_per_min', 'call_rate_per_min', 'video_rate_per_min',
             'status', 'average_rating', 'total_sessions',
             'profile_photo', 'reviews',
