@@ -88,47 +88,26 @@ def credit_wallet(user, amount: Decimal, description: str,
 
 
 # ─── Debit (Session Per-Minute Billing) ──────────────────────────────────────
-
-def debit_wallet(user, amount: Decimal, description: str,
-                 idempotency_key: str = None):
-    """
-    Debit user wallet for session billing.
-    Called by sessions/services.py → process_billing_tick() every 60 seconds.
-
-    Idempotency key = "session-<uuid>-tick-<minute>"
-    Prevents double-deduction if tick is retried due to network error.
-    """
+def debit_wallet(user, amount, description='', order=None,
+                 idempotency_key=None, session_type=None, astrologer_name=''):
     from .models import Wallet, Transaction
 
-    # Idempotency check
-    if idempotency_key:
-        if Transaction.objects.filter(idempotency_key=idempotency_key).exists():
-            logger.info(f"Duplicate debit prevented: {idempotency_key}")
-            return Transaction.objects.get(idempotency_key=idempotency_key)
-
     with db_transaction.atomic():
-        wallet = Wallet.objects.select_for_update().get(user=user)
+        wallet = get_or_create_wallet(user)
+        wallet.debit(amount)
 
-        if wallet.balance < Decimal(str(amount)):
-            raise ValueError(
-                f"Insufficient balance: ₹{wallet.balance} available, ₹{amount} required."
-            )
-
-        wallet.balance -= Decimal(str(amount))
-        wallet.save(update_fields=['balance', 'updated_at'])
-
-        txn = Transaction.objects.create(
+        Transaction.objects.create(
             wallet           = wallet,
             transaction_type = Transaction.TYPE_DEDUCTION,
             amount           = amount,
             balance_after    = wallet.balance,
             description      = description,
+            order            = order,
             idempotency_key  = idempotency_key,
+            session_type     = session_type,        # ← saves to DB
+            astrologer_name  = astrologer_name,     # ← saves to DB
         )
-
-    logger.info(f"Debited ₹{amount} from {user.phone} | key={idempotency_key}")
-    return txn
-
+    return wallet
 
 # ─── Astrologer Earnings ─────────────────────────────────────────────────────
 

@@ -40,14 +40,46 @@ class WalletSerializer(serializers.ModelSerializer):
         ).aggregate(total=Sum('amount'))['total']
         return result or 0
 
-
 class TransactionSerializer(serializers.ModelSerializer):
+    display_label = serializers.SerializerMethodField()
+    is_credit     = serializers.SerializerMethodField()
+    signed_amount = serializers.SerializerMethodField()
+
     class Meta:
         model  = Transaction
         fields = [
-            'id', 'transaction_type', 'amount',
-            'balance_after', 'description', 'created_at',
+            'id',
+            'transaction_type',
+            'session_type',
+            'astrologer_name',
+            'display_label',
+            'amount',
+            'signed_amount',
+            'is_credit',
+            'balance_after',
+            'description',
+            'created_at',
         ]
+
+    def get_display_label(self, obj):
+        if obj.transaction_type == Transaction.TYPE_DEDUCTION and obj.astrologer_name:
+            prefix = {
+                'chat':  'Chat with',
+                'call':  'Call with',
+                'video': 'Video with',
+            }.get(obj.session_type, 'Session with')
+            return f"{prefix} {obj.astrologer_name}"
+        return obj.get_transaction_type_display()
+
+    def get_is_credit(self, obj):
+        return obj.transaction_type in (
+            Transaction.TYPE_RECHARGE,
+            Transaction.TYPE_REFUND,
+        )
+
+    def get_signed_amount(self, obj):
+        sign = '+' if self.get_is_credit(obj) else '-'
+        return f"{sign}₹{obj.amount}"
 
 
 class CreateOrderSerializer(serializers.Serializer):
