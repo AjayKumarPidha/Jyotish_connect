@@ -41,26 +41,24 @@ razorpay_client = razorpay.Client(
     auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
 )
 
-
 class WalletAPIView(APIView):
     """
     GET /api/wallet/
-    Returns wallet balance + pending settlement for logged-in user.
-
-    RESPONSE:
-    {
-        "id": "uuid",
-        "balance": "150.00",
-        "pending_settlement": "0.00",
-        "total_earned": "0.00"
-    }
+    Returns wallet balance + paginated transaction history in one response.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        wallet = get_or_create_wallet(request.user)
-        return Response(WalletSerializer(wallet).data)
+        wallet       = get_or_create_wallet(request.user)
+        transactions = Transaction.objects.filter(wallet=wallet).order_by('-created_at')
 
+        return Response({
+            'success': True,
+            'data': {
+                'wallet':       WalletSerializer(wallet).data,
+                'transactions': TransactionSerializer(transactions, many=True).data,
+            }
+        })
 
 class CreateOrderAPIView(APIView):
     """

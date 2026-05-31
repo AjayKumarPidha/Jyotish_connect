@@ -1,11 +1,44 @@
 from rest_framework import serializers
 from .models import Wallet, Transaction, RazorpayOrder, AstrologerPayout
 
-
 class WalletSerializer(serializers.ModelSerializer):
+    total_recharged  = serializers.SerializerMethodField()
+    total_spent      = serializers.SerializerMethodField()
+    total_refunded   = serializers.SerializerMethodField()
+
     class Meta:
         model  = Wallet
-        fields = ['id', 'balance', 'pending_settlement', 'total_earned', 'updated_at']
+        fields = [
+            'id',
+            'balance',              # current available balance
+            'pending_settlement',
+            'total_earned',
+            'total_recharged',      # sum of all recharges
+            'total_spent',          # sum of all deductions
+            'total_refunded',       # sum of all refunds
+            'updated_at',
+        ]
+
+    def get_total_recharged(self, obj):
+        from django.db.models import Sum
+        result = obj.transactions.filter(
+            transaction_type=Transaction.TYPE_RECHARGE
+        ).aggregate(total=Sum('amount'))['total']
+        return result or 0
+
+    def get_total_spent(self, obj):
+        from django.db.models import Sum
+        result = obj.transactions.filter(
+            transaction_type=Transaction.TYPE_DEDUCTION
+        ).aggregate(total=Sum('amount'))['total']
+        return result or 0
+
+    def get_total_refunded(self, obj):
+        from django.db.models import Sum
+        result = obj.transactions.filter(
+            transaction_type=Transaction.TYPE_REFUND
+        ).aggregate(total=Sum('amount'))['total']
+        return result or 0
 
 
 class TransactionSerializer(serializers.ModelSerializer):
