@@ -57,7 +57,7 @@ def handle_webhook(payload_body: bytes, signature: str) -> tuple[bool, str]:
 
     # Step 4: Process based on event type inside atomic transaction
     try:
-        with db_transaction.atomic():webhook8349
+        with db_transaction.atomic():
             if event_type == 'payment.captured': 
                 _handle_payment_captured(payload)
 
