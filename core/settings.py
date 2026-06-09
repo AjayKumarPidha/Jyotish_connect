@@ -149,7 +149,7 @@ CORS_ALLOW_ALL_ORIGINS = True   # Change to specific origins in production
 # ── Razorpay (TEST MODE) ──────────────────────────────────────────────────────
 RAZORPAY_KEY_ID      = env('RAZORPAY_KEY_ID',      default='rzp_test_your_key_id')
 RAZORPAY_KEY_SECRET  = env('RAZORPAY_KEY_SECRET',   default='your_test_secret')
-RAZORPAY_WEBHOOK_SECRET = env('RAZORPAY_WEBHOOK_SECRET', default='your_webhook_secret')
+RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
 
 #### AGORA CONFIG (TEST VALUES, REPLACE IN PRODUCTION) ─────────────────────────
 AGORA_APP_ID          = os.environ.get('AGORA_APP_ID', '')

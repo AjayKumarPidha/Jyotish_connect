@@ -87,3 +87,4 @@ class OTPRecord(models.Model):
 
     def __str__(self):
         return f"{self.phone} — {'used' if self.is_used else 'active'}"
+
