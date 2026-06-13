@@ -96,37 +96,54 @@ class StaticOTPBackend(BaseOTPBackend):
         record.save(update_fields=['is_used'])
         return {"valid": True, "message": "OTP verified successfully."}
 
-
-# ─── Firebase OTP Backend (future — plug in when ready) ──────────────────────
 class FirebaseOTPBackend(BaseOTPBackend):
-    """
-    Production backend.
-    Firebase verifies OTP on the CLIENT side; backend only validates the
-    Firebase ID token. `send_otp` is a no-op here.
-
-    To activate: set  otp_backend = FirebaseOTPBackend()  at the bottom.
-    """
 
     def send_otp(self, phone: str) -> dict:
-        # Firebase OTP is triggered client-side — nothing to do server-side
         return {"success": True, "message": "OTP sent via Firebase (client-side)."}
 
     def verify_otp(self, phone: str, code: str) -> dict:
-        """
-        `code` here is the Firebase ID Token (not a 4-digit code).
-        """
         import firebase_admin
         from firebase_admin import auth as firebase_auth
 
+        # ── Firebase app initialize karo ────────────────────────────────────
+        try:
+            firebase_admin.get_app()  # already initialized check
+        except ValueError:
+            import json
+            import os
+            from django.conf import settings
+
+            creds_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
+            if creds_json:
+                cred = firebase_admin.credentials.Certificate(
+                    json.loads(creds_json)
+                )
+                firebase_admin.initialize_app(cred)
+
+        # ── Token verify karo ───────────────────────────────────────────────
         try:
             decoded = firebase_auth.verify_id_token(code)
-            return {"valid": True, "message": "Firebase token verified.", "firebase_uid": decoded["uid"]}
+
+            # Phone number match karo
+            token_phone = decoded.get('phone_number', '')
+            if token_phone != phone:
+                return {
+                    "valid": False,
+                    "message": f"Phone mismatch. Token: {token_phone}, Given: {phone}"
+                }
+
+            return {
+                "valid":       True,
+                "message":     "Firebase token verified.",
+                "firebase_uid": decoded["uid"]
+            }
+
         except firebase_admin.auth.ExpiredIdTokenError:
             return {"valid": False, "message": "Firebase token expired."}
-        except Exception:
+        except firebase_admin.auth.InvalidIdTokenError:
             return {"valid": False, "message": "Invalid Firebase token."}
-
-
+        except Exception as e:
+            return {"valid": False, "message": f"Verification failed: {str(e)}"}
 # ─── Active backend ──────────────────────────────────────────────────────────
 # ⬇ Swap this line to switch backends without touching views.py
 otp_backend: BaseOTPBackend = FirebaseOTPBackend()
