@@ -36,7 +36,7 @@ class SendOTPSerializer(serializers.Serializer):
 class VerifyOTPSerializer(serializers.Serializer):
     """POST /auth/verify-otp/ — submit OTP code."""
     phone    = serializers.CharField(max_length=15)
-    otp_code = serializers.CharField(max_length=10)
+    otp_code = serializers.CharField()
 
     def validate_phone(self, value):
         return normalize_phone(value)
