@@ -129,5 +129,5 @@ class FirebaseOTPBackend(BaseOTPBackend):
 
 # ─── Active backend ──────────────────────────────────────────────────────────
 # ⬇ Swap this line to switch backends without touching views.py
-otp_backend: BaseOTPBackend = StaticOTPBackend()
+otp_backend: BaseOTPBackend = FirebaseOTPBackend()
 # otp_backend: BaseOTPBackend = FirebaseOTPBackend()   # ← uncomment for production

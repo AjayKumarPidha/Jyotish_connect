@@ -103,14 +103,14 @@ class SendOTPAPIView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        return Response(
-            {
-                'success': True,
-                'message': result.get('message', f'OTP sent to {phone} successfully.'),
-                'otp': result.get('_debug_otp'),  # ← ye add karo
-            },
-            status=status.HTTP_200_OK
-        )
+        # views.py — SendOTPAPIView response change karo
+        return Response({
+            'success': True,
+            'message': 'Please verify using Firebase OTP on your device.',
+            'data': {
+                'firebase_project_id': 'jyotish-connect-4f75e',
+            }
+        }, status=status.HTTP_200_OK)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -123,35 +123,36 @@ class VerifyOTPAPIView(APIView):
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(
-                {
-                    'success': False,
-                    'message': 'Validation failed. Please check your input.',
-                    'errors': serializer.errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                'success': False,
+                'message': 'Validation failed.',
+                'errors': serializer.errors,
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        phone    = serializer.validated_data['phone']
-        otp_code = serializer.validated_data['otp_code']
+        phone          = serializer.validated_data['phone']
+        firebase_token = serializer.validated_data['otp_code']  # Flutter ID token bhejega
 
-        # ── Verify OTP via backend ───────────────────────────────────────────
-        result = otp_backend.verify_otp(phone, otp_code)
+        # Firebase token verify karo
+        result = otp_backend.verify_otp(phone, firebase_token)
         if not result.get('valid'):
-            return Response(
-                {
-                    'success': False,
-                    'message': result.get('message', 'OTP verification failed.'),
-                },
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+            return Response({
+                'success': False,
+                'message': result.get('message', 'Verification failed.'),
+            }, status=status.HTTP_401_UNAUTHORIZED)
 
-        # ── Existing user → login ────────────────────────────────────────────
+        # Firebase UID save karo user mein
+        firebase_uid = result.get('firebase_uid')
+
         try:
             user = User.objects.get(phone=phone)
+            # UID update karo agar nahi hai
+            if firebase_uid and not user.firebase_uid:
+                user.firebase_uid = firebase_uid
+                user.save(update_fields=['firebase_uid'])
+
             return Response({
                 'success': True,
-                'message': 'OTP verified. Login successful.',
+                'message': 'Verification successful. Login complete.',
                 'data': {
                     'step':   'login_complete',
                     'tokens': get_tokens(user),
@@ -159,18 +160,16 @@ class VerifyOTPAPIView(APIView):
                 }
             }, status=status.HTTP_200_OK)
 
-        # ── New user → temp token for Screen 2 ──────────────────────────────
         except User.DoesNotExist:
             temp_token = generate_temp_token(phone)
             return Response({
                 'success': True,
-                'message': 'OTP verified. Please complete your profile.',
+                'message': 'Verified. Please complete your profile.',
                 'data': {
                     'step':       'signup_incomplete',
                     'temp_token': temp_token,
                 }
             }, status=status.HTTP_200_OK)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 3 — Complete Profile (new users only)
