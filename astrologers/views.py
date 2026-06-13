@@ -124,6 +124,27 @@ class AstrologerStatusAPIView(APIView):
 
         profile.status = new_status
         profile.save(update_fields=['status'])
+
+        # ── ADD KARO YAHAN ──────────────────────────────────────────────────
+        if new_status == AstrologerProfile.STATUS_ONLINE:
+            from notifications.fcm import notify_astrologer_online
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+
+            # Last 30 din ke clients dhundo jo is astrologer se baat kar chuke hain
+            from django.utils import timezone
+            from datetime import timedelta
+            thirty_days_ago = timezone.now() - timedelta(days=30)
+
+            recent_clients = User.objects.filter(
+                client_sessions__astrologer=profile,
+                client_sessions__created_at__gte=thirty_days_ago,
+            ).distinct()
+
+            for client in recent_clients:
+                notify_astrologer_online(client, profile)
+        # ────────────────────────────────────────────────────────────────────
+
         return Response({
             'success': True,
             'message': f'Status updated to "{profile.status}" successfully.',
